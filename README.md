@@ -1,7 +1,7 @@
 # DiVA_LLM_Conference_Cleaner
 
-(
 
+```
 
 aw@katharsis-llm:~$ source venv/bin/activate
 (venv) aw@katharsis-llm:~$ 
@@ -31,3 +31,4 @@ total 4.6G
 total 19M
 -rw-rw-r-- 1 aw aw  14M Jan 29 03:22 cities5000.txt
 -rw-rw-r-- 1 aw aw 5.0M Jan 29 02:29 cities5000.zip
+```
