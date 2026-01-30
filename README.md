@@ -31,4 +31,67 @@ total 4.6G
 total 19M
 -rw-rw-r-- 1 aw aw  14M Jan 29 03:22 cities5000.txt
 -rw-rw-r-- 1 aw aw 5.0M Jan 29 02:29 cities5000.zip
+
+(venv) aw@katharsis-llm:~$ python -m confmeta.pipeline
+Fetched 200 conference rows for parsing
+
+=== 1/200 PID 455472 name_seq 3 ===
+RAW: 2011 IEEE International Conference on Communications, ICC 2011. Kyoto. 5 June 2011 - 9 June 2011
+LLM output (streaming):
+{
+  "conf_name": "2011 IEEE International Conference on Communications, ICC 2011",
+  "conf_place": "Kyoto",
+  "conf_dates": "2011-06-05 / 2011-06-09",
+  "note": "Extracted conference name with year; kept city and date range."
+}
+
+PARSED: name='2011 IEEE International Conference on Communications, ICC 2011' | place='Kyoto, JP' | dates='2011-06-05 / 2011-06-09' | order=199
+NOTE: Extracted conference name with year; kept city and date range.
+DBLP: lookup disabled
+
+
+
+
+=== 2/200 PID 896668 name_seq 7 ===
+RAW: Transducers 2015, Anchorage, Alaska, USA, June 21-25, 2015
+LLM output (streaming):
+{
+  "conf_name": "Transducers 2015",
+  "conf_place": "Anchorage, Alaska, USA",
+  "conf_dates": "2015-06-21 / 2015-06-25",
+  "note": "Extracted conference name and dates from the string; kept city, country, and date range as is."
+}
+
+PARSED: name='Transducers 2015' | place='Anchorage, Alaska, USA' | dates='2015-06-21 / 2015-06-25' | order=None
+NOTE: Extracted conference name and dates from the string; kept city, country, and date range as is.
+DBLP: lookup disabled
+
+
+
+
+=== 3/200 PID 1659075 name_seq 4 ===
+RAW: 47th IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP), MAY 23-27, 2022, Singapore, Singapore
+LLM output (streaming):
+{
+  "conf_name": "47th IEEE International Conference on Acoustics, Speech and Signal Processing, ICASSP",
+  "conf_place": "Singapore, Singapore",
+  "conf_dates": "2022-05-23 / 2022-05-27",
+  "note": "Extracted acronym+year in name; separated city and country for place."
+}
+
+PARSED: name='47th IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP), ICASSP' | place='Singapore, Singapore' | dates='2022-05-23 / 2022-05-27' | order=47
+NOTE: Extracted acronym+year in name; separated city and country for place.
+DBLP: lookup disabled
+
+
+
+
+=== 4/200 PID 429014 name_seq 3 ===
+RAW: the 6th ACM workshop on Formal methods in security engineering
+PARSED: name='The 6th ACM Workshop on Formal Methods in Security Engineering' | place='' | dates='' | order=6
+NOTE: no date detected or skipped by heuristic
+DBLP: lookup disabled
+
+
+
 ```
