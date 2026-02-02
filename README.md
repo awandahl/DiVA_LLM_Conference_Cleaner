@@ -92,6 +92,21 @@ PARSED: name='The 6th ACM Workshop on Formal Methods in Security Engineering' | 
 NOTE: no date detected or skipped by heuristic
 DBLP: lookup disabled
 
+Profiling:
+cd ~
+source venv/bin/activate
+
+python -m cProfile -o profile.confmeta -m confmeta.pipeline
+
+Inspecting:
+
+python -m pstats profile.confmeta
+# inside pstats:
+sort cumulative
+stats 30
+
+
+
 
 
 ```
