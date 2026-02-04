@@ -28,6 +28,24 @@ US_STATE_ABBREVS = {
     "DC", "D.C.",
 }
 
+US_STATE_FULL_TO_ABBR = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+    "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
+    "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
+    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
+    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+    "vermont": "VT", "virginia": "VA", "washington": "WA", "west virginia": "WV",
+    "wisconsin": "WI", "wyoming": "WY", "district of columbia": "DC",
+}
+
+# --- date range parsing for conf_dates -> granular fields -------------
+
 ISO_RANGE_RE = re.compile(
     r"""
     ^
@@ -40,8 +58,53 @@ ISO_RANGE_RE = re.compile(
     re.VERBOSE,
 )
 
+
+def parse_iso_like_date(s: str):
+    """
+    Parse 'YYYY', 'YYYY-MM' or 'YYYY-MM-DD' into (year, month, day).
+    Missing parts become None.
+    """
+    if not s:
+        return (None, None, None)
+    parts = s.split("-")
+    try:
+        year = int(parts[0])
+    except ValueError:
+        return (None, None, None)
+    month = int(parts[1]) if len(parts) >= 2 else None
+    day = int(parts[2]) if len(parts) >= 3 else None
+    return (year, month, day)
+
+
+def derive_dates_from_conf_dates(conf_dates: str):
+    """
+    Take a conf_dates string in your existing formats, e.g.
+      '2008-02-18 / 2008-02-21'
+      '2019-06 / 2019-06'
+      '2019 / 2019'
+    and return:
+      (start_day, start_month, start_year, end_day, end_month, end_year)
+    where each component may be None.
+    """
+    if not conf_dates:
+        return (None, None, None, None, None, None)
+
+    m = ISO_RANGE_RE.match(conf_dates.strip())
+    if not m:
+        return (None, None, None, None, None, None)
+
+    start_raw = m.group("start")
+    end_raw = m.group("end") or start_raw
+
+    sy, sm, sd = parse_iso_like_date(start_raw)
+    ey, em, ed = parse_iso_like_date(end_raw)
+
+    return (sd, sm, sy, ed, em, ey)
+
+
+# --- abbreviation expansion -------------------------------------------
+
 ABBREV_REPLACEMENTS = {
-    # common conference-related abbreviations
     r"\bint\.?\s+conf\.?\b": "International Conference",
     r"\bint\.?\s+symp\.?\b": "International Symposium",
     r"\bint\.?\s+worksh\.?\b": "International Workshop",
@@ -52,6 +115,7 @@ ABBREV_REPLACEMENTS = {
     r"\bworksh\.?\b": "Workshop",
 }
 
+
 def expand_abbreviations(text: str) -> str:
     if not text:
         return text
@@ -60,18 +124,18 @@ def expand_abbreviations(text: str) -> str:
         s = re.sub(pat, repl, s, flags=re.IGNORECASE)
     return s
 
-# Matches: 'as a part of', 'as part of', 'held as part of', 'Held as Part of' etc.
+
+# Matches: 'as a part of', 'as part of', 'held as part of', etc.
 AS_PART_OF_RE = re.compile(
     r"\b(?:held\s+)?as\s+(?:a\s+)?part\s+of\b",
     re.IGNORECASE,
 )
 
+
 def ensure_keep_full_name_for_as_part_of(raw_name: str, llm_name: str) -> str:
     """
     If the raw string contains 'as a part of', return the raw_name (normalized),
     otherwise trust the LLM's conf_name.
-
-    This preserves the full structure when a conference is described as part of another.
     """
     if not raw_name:
         return llm_name
@@ -112,8 +176,7 @@ def normalize_place(place: str) -> str:
 
 def normalize_us_place(place: str) -> str:
     """
-    If place ends with 'City, ST' or 'City, ST, Country' for a known US state,
-    ensure the country is 'USA' and compress 'United States...' to 'USA'.
+    Handle US states (abbrev or spelled-out) and ensure 'USA' as country.
     """
     if not place:
         return place
@@ -122,12 +185,27 @@ def normalize_us_place(place: str) -> str:
     if not parts:
         return p
 
-    # Normalize any explicit 'United States...' to 'USA'
+    # Normalize 'United States...' → 'USA'
     if len(parts) >= 2:
         last = parts[-1]
         if last.lower().startswith("united states"):
             parts[-1] = "USA"
             return ", ".join(parts)
+
+    # Spelled-out state names
+    if len(parts) >= 2:
+        last = parts[-1].lower()
+        two_last = (parts[-2] + " " + parts[-1]).lower() if len(parts) >= 2 else None
+
+        if last in US_STATE_FULL_TO_ABBR:
+            abbr = US_STATE_FULL_TO_ABBR[last]
+            city = ", ".join(parts[:-1])
+            return f"{city}, {abbr}, USA"
+
+        if two_last in US_STATE_FULL_TO_ABBR and len(parts) >= 3:
+            abbr = US_STATE_FULL_TO_ABBR[two_last]
+            city = ", ".join(parts[:-2])
+            return f"{city}, {abbr}, USA"
 
     # "City, ST" → "City, ST, USA"
     if len(parts) == 2:
@@ -138,7 +216,6 @@ def normalize_us_place(place: str) -> str:
     # "City, ST, Country" with ST a US state → normalize country to USA
     if len(parts) >= 3:
         st = parts[-2]
-        country = parts[-1]
         if st.upper() in US_STATE_ABBREVS:
             parts[-1] = "USA"
             return ", ".join(parts)
@@ -151,7 +228,6 @@ def normalize_conf_name(name: str) -> str:
         return name
     text = str(name).strip()
 
-    # expand things like "int. conf." → "International Conference"
     text = expand_abbreviations(text)
 
     tokens = re.split(r"(\s+)", text)
@@ -190,37 +266,7 @@ def normalize_conf_name(name: str) -> str:
     return "".join(result)
 
 
-def parse_iso_like_date(s: str):
-    if not s:
-        return (None, None, None)
-    parts = s.split("-")
-    try:
-        year = int(parts[0])
-    except ValueError:
-        return (None, None, None)
-    month = int(parts[1]) if len(parts) >= 2 else None
-    day = int(parts[2]) if len(parts) >= 3 else None
-    return (year, month, day)
-
-
-def derive_dates_from_conf_dates(conf_dates: str):
-    if not conf_dates:
-        return (None, None, None, None, None, None)
-
-    m = ISO_RANGE_RE.match(conf_dates.strip())
-    if not m:
-        return (None, None, None, None, None, None)
-
-    start_raw = m.group("start")
-    end_raw = m.group("end") or start_raw
-
-    sy, sm, sd = parse_iso_like_date(start_raw)
-    ey, em, ed = parse_iso_like_date(end_raw)
-
-    return (sd, sm, sy, ed, em, ey)
-
-
-# --- conference order extraction (series number) -----------------------
+# --- conference order extraction (series number) ----------------------
 
 ORDINAL_WORDS = {
     "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
@@ -234,7 +280,6 @@ ORDINAL_WORDS = {
 }
 ORDINAL_NUMBER_RE = re.compile(r"\b(\d+)[’']?(st|nd|rd|th)\b", re.IGNORECASE)
 
-# Roman numerals, e.g. I, II, IV, XXV, etc.
 ROMAN_RE = re.compile(r"\b[IVXLCDM]+\b", re.IGNORECASE)
 ROMAN_MAP = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
@@ -256,9 +301,9 @@ def roman_to_int(s: str):
         return None
     return total
 
+
 # --- proceedings noise stripping -------------------------------------
 
-# Strip leading "Proceedings of ..." wrappers
 PROCEEDINGS_PREFIX_RE = re.compile(
     r"""
     ^\s*
@@ -269,7 +314,6 @@ PROCEEDINGS_PREFIX_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-# Strip trailing ", proceedings" / ", conference proceedings" etc.
 PROCEEDINGS_TRAIL_RE = re.compile(
     r"""
     \s*,?\s*
@@ -314,7 +358,6 @@ def extract_conf_order(text: str):
         return None
     t = str(text)
 
-    # 1) Numeric ordinals like "5th", "21st"
     m = ORDINAL_NUMBER_RE.search(t)
     if m:
         try:
@@ -322,14 +365,12 @@ def extract_conf_order(text: str):
         except ValueError:
             pass
 
-    # 2) Word ordinals like "Fifth", "Twenty-First"
     words = re.findall(r"[A-Za-z\-]+", t)
     for w in words:
         key = w.lower()
         if key in ORDINAL_WORDS:
             return ORDINAL_WORDS[key]
 
-    # 3) Roman numerals like "XXV", "IV", "XII"
     m_roman = ROMAN_RE.search(t)
     if m_roman:
         value = roman_to_int(m_roman.group(0))
@@ -339,16 +380,12 @@ def extract_conf_order(text: str):
     return None
 
 
-# --- acronym + year patch ---------------------------------------------
+# --- acronym + year patches -------------------------------------------
 
 ACRONYM_YEAR_RE = re.compile(r"\b([A-Z]{2,})\s+(20\d{2}|19\d{2})\b")
 
 
 def maybe_add_acronym_year_from_raw(raw: str, name: str) -> str:
-    """
-    If raw contains an acronym+year like 'DIS 2019' but name only contains the acronym,
-    append the year to the acronym in the name.
-    """
     if not raw or not name:
         return name
     raw = str(raw)
@@ -359,22 +396,15 @@ def maybe_add_acronym_year_from_raw(raw: str, name: str) -> str:
         return name
     acro, year = m.group(1), m.group(2)
 
-    # If acronym is present but acronym+year is not, add the year once
     if acro in name and f"{acro} {year}" not in name:
         return name.replace(acro, f"{acro} {year}", 1)
     return name
 
 
-# --- parenthesized acronym patch --------------------------------------
-
 PAREN_ACRO_RE = re.compile(r"([A-Za-z0-9][^()]+?)\s*\(([A-Z]{2,})\)")
 
 
 def maybe_keep_parenthesized_acronym_from_raw(raw: str, name: str) -> str:
-    """
-    If raw contains 'Full Name (ACRO)' and the final name contains 'Full Name'
-    but is missing the '(ACRO)', add the parenthesized acronym back once.
-    """
     if not raw or not name:
         return name
     raw = str(raw)
@@ -387,11 +417,9 @@ def maybe_keep_parenthesized_acronym_from_raw(raw: str, name: str) -> str:
     full, acro = m.group(1).strip(), m.group(2).strip()
     pattern_with_acro = f"{full} ({acro})"
 
-    # If name already has the acronym in parentheses, leave it.
     if pattern_with_acro in name:
         return name
 
-    # If name has the full phrase but without parentheses, add them.
     if full in name and f"{full} {acro}" not in name:
         return name.replace(full, pattern_with_acro, 1)
 
