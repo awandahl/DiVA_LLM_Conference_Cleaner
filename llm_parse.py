@@ -1,5 +1,8 @@
 import json
 import requests
+import time
+import requests
+from requests.exceptions import ConnectionError, Timeout
 from .config import MODEL, OLLAMA_URL
 from .regex_utils import (
     normalize_conf_name,
@@ -41,29 +44,42 @@ def maybe_add_country_from_city(place: str):
 
 
 def stream_llm_json(prompt: str, show_stream: bool = True) -> str:
-    resp = requests.post(
-        OLLAMA_URL,
-        json={"model": MODEL, "prompt": prompt, "stream": True},
-        stream=True,
-    )
-    resp.raise_for_status()
+    max_retries = 3
+    delay = 5  # seconds
+    last_error = None
 
-    full_text = []
-    for line in resp.iter_lines():
-        if not line:
-            continue
-        data = json.loads(line.decode("utf-8"))
-        chunk = data.get("response", "")
-        if show_stream and chunk:
-            print(chunk, end="", flush=True)
-        full_text.append(chunk)
-        if data.get("done"):
-            break
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = requests.post(
+                OLLAMA_URL,
+                json={
+                    "model": MODEL,
+                    "prompt": prompt,
+                    "stream": False,  # no streaming
+                    "temperature": 0.0,
+                    "num_predict": 256,
+                },
+                timeout=120,  # seconds
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = data.get("response", "")
 
-    if show_stream:
-        print()
-        print()
-    return "".join(full_text)
+            if show_stream and text:
+                print(text, end="", flush=True)
+                print()
+                print()
+
+            return text
+
+        except (ConnectionError, Timeout) as e:
+            last_error = e
+            print(f"\n[LLM] connection error (attempt {attempt}/{max_retries}): {e}")
+            if attempt < max_retries:
+                time.sleep(delay)
+
+    # All retries failed; let pipeline's try/except handle it
+    raise last_error
 
 
 def parse_with_llm(conf_string: str, show_stream: bool = True):
